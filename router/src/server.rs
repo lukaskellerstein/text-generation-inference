@@ -1162,46 +1162,39 @@ async fn chat_completions(
             .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_secs();
 
-        let (tool_calls, output) = if tool_grammar.is_some() {
-            // gen_text should be valid json
-            let gen_text_value: Value =
-                serde_json::from_str(&generation.generated_text).map_err(|e| {
-                    (
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        Json(ErrorResponse {
-                            error: e.to_string(),
-                            error_type: "Input validation error".to_string(),
-                        }),
-                    )
-                })?;
-            let tool_calls = vec![ToolCall {
-                id: "0".to_string(),
-                r#type: "function".to_string(),
-                function: FunctionDefinition {
-                    description: None,
-                    name: gen_text_value
-                        .get("function")
-                        .and_then(|f| f.get("_name"))
-                        .and_then(|name| name.as_str())
-                        .unwrap_or("default_function_name")
-                        .to_string(),
-                    // Serialize the JSON object obtained from "function" to an escaped JSON string
-                    arguments: gen_text_value
-                        .get("function")
-                        .map(|f| {
-                            let mut f_cloned = f.clone();
-                            if let Value::Object(ref mut props) = f_cloned {
-                                props.remove("_name");
-                            }
-                            f_cloned
-                        })
-                        .unwrap_or_default(),
-                },
-            }];
-            (Some(tool_calls), None)
-        } else {
-            (None, Some(generation.generated_text))
-        };
+            let (tool_calls, output) = if tool_grammar.is_some() {
+                match serde_json::from_str::<Value>(&generation.generated_text) {
+                    Ok(gen_text_value) => {
+                        let tool_calls = vec![ToolCall {
+                            id: "0".to_string(),
+                            r#type: "function".to_string(),
+                            function: FunctionDefinition {
+                                description: None,
+                                name: gen_text_value
+                                    .get("function")
+                                    .and_then(|f| f.get("_name"))
+                                    .and_then(|name| name.as_str())
+                                    .unwrap_or("default_function_name")
+                                    .to_string(),
+                                arguments: gen_text_value
+                                    .get("function")
+                                    .map(|f| {
+                                        let mut f_cloned = f.clone();
+                                        if let Value::Object(ref mut props) = f_cloned {
+                                            props.remove("_name");
+                                        }
+                                        f_cloned
+                                    })
+                                    .unwrap_or_default(),
+                            },
+                        }];
+                        (Some(tool_calls), None)
+                    },
+                    Err(_) => (None, Some(generation.generated_text)),
+                }
+            } else {
+                (None, Some(generation.generated_text))
+            };
         // build the complete response object with the full text
         let response = ChatCompletion::new(
             model_id,
